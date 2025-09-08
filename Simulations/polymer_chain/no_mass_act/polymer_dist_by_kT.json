@@ -1,0 +1,522 @@
+{
+    "concentration=0.001": {
+        "kT=0.5": {
+            "replica 2": {
+                "1 monomers": 4.0,
+                "2 monomers": 0.0,
+                "3 monomers": 0.0,
+                "ABC": 0.0,
+                "4 monomers": 0.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 9.0
+            },
+            "replica 1": {
+                "1 monomers": 2.0,
+                "2 monomers": 0.0,
+                "3 monomers": 1.0,
+                "ABC": 0.0,
+                "4 monomers": 1.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 11.0
+            },
+            "replica 3": {
+                "1 monomers": 3.0,
+                "2 monomers": 1.0,
+                "3 monomers": 0.0,
+                "ABC": 0.0,
+                "4 monomers": 0.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 9.0
+            },
+            "Average": {
+                "4 monomers": 0.3333333333333333,
+                "1 monomers": 3.0,
+                "3 monomers": 0.3333333333333333,
+                "2 monomers": 0.3333333333333333,
+                "ABC": 0.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 9.666666666666666
+            },
+            "Std_Dev": {
+                "4 monomers": 0.5773502691896257,
+                "1 monomers": 1.0,
+                "3 monomers": 0.5773502691896257,
+                "2 monomers": 0.5773502691896257,
+                "ABC": 0.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 1.1547005383792515
+            }
+        },
+        "kT=0.55": {
+            "replica 1": {
+                "1 monomers": 1.0,
+                "2 monomers": 0.0,
+                "3 monomers": 0.09157509157509147,
+                "ABC": 0.9084249084249085,
+                "4 monomers": 1.0,
+                "5 monomers": 1.0,
+                "\u22656 monomers": 7.0
+            },
+            "replica 2": {
+                "1 monomers": 5.0,
+                "2 monomers": 0.0,
+                "3 monomers": 1.1636928289102202,
+                "ABC": 0.8363071710897798,
+                "4 monomers": 1.0,
+                "5 monomers": 1.0,
+                "\u22656 monomers": 11.0
+            },
+            "replica 3": {
+                "1 monomers": 0.0,
+                "2 monomers": 0.0,
+                "3 monomers": 0.0,
+                "ABC": 0.0,
+                "4 monomers": 0.0,
+                "5 monomers": 1.0,
+                "\u22656 monomers": 13.0
+            },
+            "Average": {
+                "4 monomers": 0.6666666666666666,
+                "1 monomers": 2.0,
+                "3 monomers": 0.41842264016177055,
+                "2 monomers": 0.0,
+                "ABC": 0.5815773598382294,
+                "5 monomers": 1.0,
+                "\u22656 monomers": 10.333333333333334
+            },
+            "Std_Dev": {
+                "4 monomers": 0.5773502691896257,
+                "1 monomers": 2.6457513110645907,
+                "3 monomers": 0.6470450061835799,
+                "2 monomers": 0.0,
+                "ABC": 0.5049499095127048,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 3.0550504633038935
+            }
+        },
+        "kT=0.6": {
+            "replica 2": {
+                "1 monomers": 21.0,
+                "2 monomers": 8.0,
+                "3 monomers": 3.01738226296116,
+                "ABC": 21.98261773703884,
+                "4 monomers": 5.0,
+                "5 monomers": 9.0,
+                "\u22656 monomers": 14.0
+            },
+            "replica 3": {
+                "1 monomers": 19.0,
+                "2 monomers": 12.0,
+                "3 monomers": 3.098641948768531,
+                "ABC": 11.901358051231469,
+                "4 monomers": 8.0,
+                "5 monomers": 5.0,
+                "\u22656 monomers": 21.0
+            },
+            "replica 1": {
+                "1 monomers": 19.0,
+                "2 monomers": 8.0,
+                "3 monomers": 1.3754030062729328,
+                "ABC": 13.624596993727067,
+                "4 monomers": 5.0,
+                "5 monomers": 5.0,
+                "\u22656 monomers": 17.0
+            },
+            "Average": {
+                "4 monomers": 6.0,
+                "1 monomers": 19.666666666666668,
+                "3 monomers": 2.4971424060008744,
+                "2 monomers": 9.333333333333334,
+                "ABC": 15.836190927332458,
+                "5 monomers": 6.333333333333333,
+                "\u22656 monomers": 17.333333333333332
+            },
+            "Std_Dev": {
+                "4 monomers": 1.7320508075688772,
+                "1 monomers": 1.1547005383792515,
+                "3 monomers": 0.972304090709733,
+                "2 monomers": 2.309401076758503,
+                "ABC": 5.392245358711096,
+                "5 monomers": 2.309401076758503,
+                "\u22656 monomers": 3.511884584284246
+            }
+        },
+        "kT=0.65": {
+            "replica 1": {
+                "1 monomers": 28.0,
+                "2 monomers": 7.0,
+                "3 monomers": 7.265266322550623,
+                "ABC": 34.73473367744938,
+                "4 monomers": 5.0,
+                "5 monomers": 9.0,
+                "\u22656 monomers": 9.0
+            },
+            "replica 2": {
+                "1 monomers": 37.0,
+                "2 monomers": 3.0,
+                "3 monomers": 6.821637213372643,
+                "ABC": 25.178362786627357,
+                "4 monomers": 6.0,
+                "5 monomers": 8.0,
+                "\u22656 monomers": 12.0
+            },
+            "replica 3": {
+                "1 monomers": 25.0,
+                "2 monomers": 8.0,
+                "3 monomers": 4.761702127659575,
+                "ABC": 32.238297872340425,
+                "4 monomers": 11.0,
+                "5 monomers": 4.0,
+                "\u22656 monomers": 11.0
+            },
+            "Average": {
+                "4 monomers": 7.333333333333333,
+                "1 monomers": 30.0,
+                "3 monomers": 6.282868554527614,
+                "2 monomers": 6.0,
+                "ABC": 30.717131445472386,
+                "5 monomers": 7.0,
+                "\u22656 monomers": 10.666666666666666
+            },
+            "Std_Dev": {
+                "4 monomers": 3.2145502536643185,
+                "1 monomers": 6.244997998398398,
+                "3 monomers": 1.3359124860185898,
+                "2 monomers": 2.6457513110645907,
+                "ABC": 4.956462107633879,
+                "5 monomers": 2.6457513110645907,
+                "\u22656 monomers": 1.5275252316519468
+            }
+        },
+        "kT=0.7": {
+            "replica 3": {
+                "1 monomers": 40.0,
+                "2 monomers": 16.0,
+                "3 monomers": 2.4029621848739495,
+                "ABC": 43.59703781512605,
+                "4 monomers": 10.0,
+                "5 monomers": 4.0,
+                "\u22656 monomers": 5.0
+            },
+            "replica 2": {
+                "1 monomers": 41.0,
+                "2 monomers": 15.0,
+                "3 monomers": 3.9489906516732205,
+                "ABC": 46.05100934832678,
+                "4 monomers": 4.0,
+                "5 monomers": 5.0,
+                "\u22656 monomers": 5.0
+            },
+            "replica 1": {
+                "1 monomers": 46.0,
+                "2 monomers": 15.0,
+                "3 monomers": 1.2684275137871097,
+                "ABC": 44.73157248621289,
+                "4 monomers": 2.0,
+                "5 monomers": 10.0,
+                "\u22656 monomers": 4.0
+            },
+            "Average": {
+                "4 monomers": 5.333333333333333,
+                "1 monomers": 42.333333333333336,
+                "3 monomers": 2.54012678344476,
+                "2 monomers": 15.333333333333334,
+                "ABC": 44.79320654988857,
+                "5 monomers": 6.333333333333333,
+                "\u22656 monomers": 4.666666666666667
+            },
+            "Std_Dev": {
+                "4 monomers": 4.163331998932265,
+                "1 monomers": 3.2145502536643185,
+                "3 monomers": 1.3455353133137298,
+                "2 monomers": 0.5773502691896257,
+                "ABC": 1.2281462208522924,
+                "5 monomers": 3.2145502536643185,
+                "\u22656 monomers": 0.5773502691896257
+            }
+        },
+        "kT=0.75": {
+            "replica 1": {
+                "1 monomers": 55.0,
+                "2 monomers": 17.0,
+                "3 monomers": 1.1449759040777252,
+                "ABC": 51.855024095922275,
+                "4 monomers": 4.0,
+                "5 monomers": 2.0,
+                "\u22656 monomers": 4.0
+            },
+            "replica 2": {
+                "1 monomers": 48.0,
+                "2 monomers": 19.0,
+                "3 monomers": 3.2417910447761145,
+                "ABC": 55.758208955223886,
+                "4 monomers": 2.0,
+                "5 monomers": 2.0,
+                "\u22656 monomers": 3.0
+            },
+            "replica 3": {
+                "1 monomers": 48.0,
+                "2 monomers": 18.0,
+                "3 monomers": 2.0980176341795342,
+                "ABC": 50.901982365820466,
+                "4 monomers": 3.0,
+                "5 monomers": 4.0,
+                "\u22656 monomers": 4.0
+            },
+            "Average": {
+                "4 monomers": 3.0,
+                "1 monomers": 50.333333333333336,
+                "3 monomers": 2.1615948610111246,
+                "2 monomers": 18.0,
+                "ABC": 52.838405138988875,
+                "5 monomers": 2.6666666666666665,
+                "\u22656 monomers": 3.6666666666666665
+            },
+            "Std_Dev": {
+                "4 monomers": 1.0,
+                "1 monomers": 4.041451884327381,
+                "3 monomers": 1.0498523617129212,
+                "2 monomers": 1.0,
+                "ABC": 2.5731328917885796,
+                "5 monomers": 1.1547005383792515,
+                "\u22656 monomers": 0.5773502691896257
+            }
+        },
+        "kT=0.8": {
+            "replica 3": {
+                "1 monomers": 77.0,
+                "2 monomers": 17.0,
+                "3 monomers": 1.3395614589922005,
+                "ABC": 52.6604385410078,
+                "4 monomers": 3.0,
+                "5 monomers": 2.0,
+                "\u22656 monomers": 1.0
+            },
+            "replica 2": {
+                "1 monomers": 78.0,
+                "2 monomers": 16.0,
+                "3 monomers": 1.4399122807017548,
+                "ABC": 50.560087719298245,
+                "4 monomers": 6.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 2.0
+            },
+            "replica 1": {
+                "1 monomers": 70.0,
+                "2 monomers": 17.0,
+                "3 monomers": 2.573741206960385,
+                "ABC": 47.426258793039615,
+                "4 monomers": 4.0,
+                "5 monomers": 2.0,
+                "\u22656 monomers": 4.0
+            },
+            "Average": {
+                "4 monomers": 4.333333333333333,
+                "1 monomers": 75.0,
+                "3 monomers": 1.7844049822181134,
+                "2 monomers": 16.666666666666668,
+                "ABC": 50.21559501778189,
+                "5 monomers": 1.3333333333333333,
+                "\u22656 monomers": 2.3333333333333335
+            },
+            "Std_Dev": {
+                "4 monomers": 1.5275252316519468,
+                "1 monomers": 4.358898943540674,
+                "3 monomers": 0.6854241961167056,
+                "2 monomers": 0.5773502691896257,
+                "ABC": 2.6340398297213734,
+                "5 monomers": 1.1547005383792515,
+                "\u22656 monomers": 1.5275252316519468
+            }
+        },
+        "kT=0.85": {
+            "replica 1": {
+                "1 monomers": 73.0,
+                "2 monomers": 23.0,
+                "3 monomers": 1.3679907231709905,
+                "ABC": 50.63200927682901,
+                "4 monomers": 5.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 1.0
+            },
+            "replica 3": {
+                "1 monomers": 70.0,
+                "2 monomers": 17.0,
+                "3 monomers": 2.7438327589334293,
+                "ABC": 55.25616724106657,
+                "4 monomers": 3.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 2.0
+            },
+            "replica 2": {
+                "1 monomers": 74.0,
+                "2 monomers": 20.0,
+                "3 monomers": 1.8760875135827675,
+                "ABC": 54.12391248641723,
+                "4 monomers": 2.0,
+                "5 monomers": 1.0,
+                "\u22656 monomers": 1.0
+            },
+            "Average": {
+                "4 monomers": 3.3333333333333335,
+                "1 monomers": 72.33333333333333,
+                "3 monomers": 1.9959703318957291,
+                "2 monomers": 20.0,
+                "ABC": 53.3373630014376,
+                "5 monomers": 0.3333333333333333,
+                "\u22656 monomers": 1.3333333333333333
+            },
+            "Std_Dev": {
+                "4 monomers": 1.5275252316519468,
+                "1 monomers": 2.0816659994661326,
+                "3 monomers": 0.6957113226315401,
+                "2 monomers": 3.0,
+                "ABC": 2.4103328170185763,
+                "5 monomers": 0.5773502691896257,
+                "\u22656 monomers": 0.5773502691896257
+            }
+        },
+        "kT=0.9": {
+            "replica 1": {
+                "1 monomers": 87.0,
+                "2 monomers": 21.0,
+                "3 monomers": 2.243299663299659,
+                "ABC": 48.75670033670034,
+                "4 monomers": 2.0,
+                "5 monomers": 1.0,
+                "\u22656 monomers": 1.0
+            },
+            "replica 3": {
+                "1 monomers": 93.0,
+                "2 monomers": 20.0,
+                "3 monomers": 1.2141658568051739,
+                "ABC": 49.785834143194826,
+                "4 monomers": 4.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 0.0
+            },
+            "replica 2": {
+                "1 monomers": 75.0,
+                "2 monomers": 18.0,
+                "3 monomers": 2.777000255026678,
+                "ABC": 53.22299974497332,
+                "4 monomers": 2.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 2.0
+            },
+            "Average": {
+                "4 monomers": 2.6666666666666665,
+                "1 monomers": 85.0,
+                "3 monomers": 2.0781552583771705,
+                "2 monomers": 19.666666666666668,
+                "ABC": 50.5885114082895,
+                "5 monomers": 0.3333333333333333,
+                "\u22656 monomers": 1.0
+            },
+            "Std_Dev": {
+                "4 monomers": 1.1547005383792515,
+                "1 monomers": 9.16515138991168,
+                "3 monomers": 0.7943974728836913,
+                "2 monomers": 1.5275252316519468,
+                "ABC": 2.3388406732844778,
+                "5 monomers": 0.5773502691896257,
+                "\u22656 monomers": 1.0
+            }
+        },
+        "kT=0.95": {
+            "replica 2": {
+                "1 monomers": 121.0,
+                "2 monomers": 12.0,
+                "3 monomers": 1.1272796709753194,
+                "ABC": 50.87272032902468,
+                "4 monomers": 1.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 0.0
+            },
+            "replica 1": {
+                "1 monomers": 121.0,
+                "2 monomers": 15.0,
+                "3 monomers": 1.2256684491978618,
+                "ABC": 48.77433155080214,
+                "4 monomers": 0.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 0.0
+            },
+            "replica 3": {
+                "1 monomers": 136.0,
+                "2 monomers": 12.0,
+                "3 monomers": 0.8924031415905063,
+                "ABC": 46.107596858409494,
+                "4 monomers": 0.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 0.0
+            },
+            "Average": {
+                "4 monomers": 0.3333333333333333,
+                "1 monomers": 126.0,
+                "3 monomers": 1.0817837539212292,
+                "2 monomers": 13.0,
+                "ABC": 48.584882912745435,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 0.0
+            },
+            "Std_Dev": {
+                "4 monomers": 0.5773502691896257,
+                "1 monomers": 8.660254037844387,
+                "3 monomers": 0.17122748075323896,
+                "2 monomers": 1.7320508075688772,
+                "ABC": 2.388204034917889,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 0.0
+            }
+        },
+        "kT=1.0": {
+            "replica 3": {
+                "1 monomers": 99.0,
+                "2 monomers": 19.0,
+                "3 monomers": 0.2818441452468363,
+                "ABC": 53.718155854753164,
+                "4 monomers": 1.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 0.0
+            },
+            "replica 1": {
+                "1 monomers": 132.0,
+                "2 monomers": 12.0,
+                "3 monomers": 0.24662040499736548,
+                "ABC": 44.753379595002635,
+                "4 monomers": 0.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 1.0
+            },
+            "replica 2": {
+                "1 monomers": 123.0,
+                "2 monomers": 15.0,
+                "3 monomers": 1.2244680851063734,
+                "ABC": 47.77553191489363,
+                "4 monomers": 0.0,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 0.0
+            },
+            "Average": {
+                "4 monomers": 0.3333333333333333,
+                "1 monomers": 118.0,
+                "3 monomers": 0.5843108784501917,
+                "2 monomers": 15.333333333333334,
+                "ABC": 48.74902245488314,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 0.3333333333333333
+            },
+            "Std_Dev": {
+                "4 monomers": 0.5773502691896257,
+                "1 monomers": 17.05872210923198,
+                "3 monomers": 0.5546720787047735,
+                "2 monomers": 3.511884584284246,
+                "ABC": 4.5609830322457325,
+                "5 monomers": 0.0,
+                "\u22656 monomers": 0.5773502691896257
+            }
+        },
+        "_largest_chain": 77
+    }
+}
