@@ -1,252 +1,125 @@
+"""
+Dimer Yield Maximization Script
+------------------------------
+Maximizes dimer yield using JAX and partition function calculations.
+Lightly cleaned for clarity and usability. All scientific logic is preserved.
+"""
+
+# ----------------------
+# Imports
+# ----------------------
 import numpy as onp
-import pickle
-import time
 import jax.numpy as jnp
 import optax
 from jax import (
-    random,
-    vmap,
-    hessian,
-    jacfwd,
-    jit,
-    value_and_grad,
-    grad,
-    lax,
-    checkpoint,
-    clear_backends,
+    random, vmap, hessian, jacfwd, jit, value_and_grad, grad
 )
 from tqdm import tqdm
-from jax_md import space
 import potentials
 import utils
 import jax_transformations3d as jts
 from jaxopt import implicit_diff, GradientDescent
-from checkpoint import checkpoint_scan
-import pdb
-import functools
-from functools import partial
-import itertools
-import matplotlib.pyplot as plt
-from jax.config import config
-import gc
 import os
 import argparse
 
+# Euler scheme for rotations
+# (used in jts.euler_from_matrix and jts.euler_from_quaternion)
+euler_scheme = "sxyz"
+
+# ----------------------
+# User Parameters & Argparse
+# ----------------------
+parser = argparse.ArgumentParser(description="Maximize dimer yield.")
+parser.add_argument("--init_patchy_vals", type=float, required=True, help="Initial patchy values")
+parser.add_argument("--init_kt", type=float, required=True, help="Initial temperature value")
+parser.add_argument("--init_conc_val", type=float, required=True, help="Initial concentration value")
+args = parser.parse_args()
 
 SEED = 42
 main_key = random.PRNGKey(SEED)
-
-
-@partial(jit, static_argnums=(1,))
-def safe_mask(mask, fn, operand, placeholder=0):
-    masked = jnp.where(mask, operand, 0)
-    return jnp.where(mask, fn(masked), placeholder)
-
-
-def distance(dR):
-    dr = jnp.sum(dR**2, axis=-1)
-    return safe_mask(dr > 0, jnp.sqrt, dr)
-
-
-# dist_fn = jnp.linalg.norm
-dist_fn = distance
-
-
-euler_scheme = "sxyz"
-
-
-def safe_log(x, eps=1e-10):
-    return jnp.log(jnp.clip(x, a_min=eps, a_max=None))
-
-
-# Shape and energy helper functions
-a = 1.0  # distance of the center of the spheres from the BB COM
-b = 0.3
-n = 2  # distance of the center of the patches from the BB COM
+a = 1.0  # sphere center distance
+b = 0.3  # patch center distance
+n = 2    # number of building blocks
 separation = 2.0
-noise = 1e-14
 vertex_radius = a
 patch_radius = 0.2 * a
 small_value = 1e-12
-vertex_species = 0
 n_species = 4
 V = 54000.0
 
-
-parser = argparse.ArgumentParser(description="Optimization script with argparse")
-parser.add_argument(
-    "--init_patchy_vals", type=float, required=True, help="Initial patchy values"
-)
-parser.add_argument(
-    "--init_kt", type=float, required=True, help="Initial temperature value"
-)
-parser.add_argument(
-    "--init_conc_val", type=float, required=True, help="Initial concentration value"
-)
-args = parser.parse_args()
-
-# Extract command-line arguments
+# Set up parameters
 init_patchy_vals = args.init_patchy_vals
 init_kT = args.init_kt
 init_conc_val = args.init_conc_val
-
-# Set up parameters
 patchy_vals = jnp.full(3, init_patchy_vals)
 init_conc = jnp.full(2, init_conc_val)
 init_kT = jnp.array([init_kT])
 init_params = jnp.concatenate([patchy_vals, init_kT, init_conc])
 
-
-# mon_shapes = [sp.make_shape(1, a, b, edge_patches="right"), sp.make_shape(1, a, b, edge_patches="right")]
-
-a = 1  # distance of the center of the spheres from the BB COM
-b = 0.3  # distance of the center of the patches from the BB COM
-mon_shape1 = onp.array(
-    [
-        [0.0, 0.0, a],  # first sphere
-        [0.0, a * onp.cos(onp.pi / 6.0), -a * onp.sin(onp.pi / 6.0)],  # second sphere
-        [0.0, -a * onp.cos(onp.pi / 6.0), -a * onp.sin(onp.pi / 6.0)],  # third sphere
-        [a, 0.0, b],  # first patch
-        [a, b * onp.cos(onp.pi / 6.0), -b * onp.sin(onp.pi / 6.0)],  # second patch
-        [a, -b * onp.cos(onp.pi / 6.0), -b * onp.sin(onp.pi / 6.0)],  # third patch
-    ]
-)
-
-mon_shape2 = jts.matrix_apply(
-    jts.reflection_matrix(
-        jnp.array([0, 0, 0], dtype=jnp.float64), jnp.array([1, 0, 0], dtype=jnp.float64)
-    ),
-    mon_shape1,
-)
-mon_shape2 = jts.matrix_apply(
-    jts.reflection_matrix(
-        jnp.array([0, 0, 0], dtype=jnp.float64), jnp.array([0, 1, 0], dtype=jnp.float64)
-    ),
-    mon_shape2,
-)
-
+# ----------------------
+# Geometry Setup
+# ----------------------
+mon_shape1 = onp.array([
+    [0., 0., a],
+    [0., a*onp.cos(onp.pi/6.), -a*onp.sin(onp.pi/6.)],
+    [0., -a*onp.cos(onp.pi/6.), -a*onp.sin(onp.pi/6.)],
+    [a, 0., b],
+    [a, b*onp.cos(onp.pi/6.), -b*onp.sin(onp.pi/6.)],
+    [a, -b*onp.cos(onp.pi/6.), -b*onp.sin(onp.pi/6.)]
+])
+mon_shape2 = jts.matrix_apply(jts.reflection_matrix(jnp.array([0, 0, 0], dtype=jnp.float64),
+                                                   jnp.array([1, 0, 0], dtype=jnp.float64)),
+                             mon_shape1)
+mon_shape2  = jts.matrix_apply(jts.reflection_matrix(jnp.array([0, 0, 0], dtype=jnp.float64),
+                                                   jnp.array([0, 1, 0], dtype=jnp.float64)),
+                             mon_shape2)
 dimer_shape = jnp.array([mon_shape1, mon_shape2])
+mon_species_1 = onp.array([0,0,0,1,2,3])
+mon_species_2 = onp.array([0,0,0,1,3,2])
+dimer_species = onp.array([0,0,0,1,3,2,0,0,0,1,2,3])
+rb_1 = jnp.array([-separation/2.0, 1e-15, 0, 0, 0, 0])   
+rb_2 = jnp.array([-separation/2.0, 1e-15, 0, 0, 0, 0,
+                separation/2.0, 0, 0, 0, 0, 0], dtype=jnp.float64)   
 
+# ----------------------
+# Utility Functions
+# ----------------------
+def safe_log(x, eps=1e-10):
+    """Safe logarithm function that avoids log(0)"""
+    return jnp.log(jnp.clip(x, a_min=eps, a_max=None))
 
-mon_species_1 = onp.array([0, 0, 0, 1, 2, 3])
-mon_species_2 = onp.array([0, 0, 0, 1, 3, 2])
-dimer_species = onp.array([0, 0, 0, 1, 3, 2, 0, 0, 0, 1, 2, 3])
-
-
-rb_1 = jnp.array([-separation / 2.0, 1e-15, 0, 0, 0, 0])
-rb_2 = jnp.array(
-    [-separation / 2.0, 1e-15, 0, 0, 0, 0, separation / 2.0, 0, 0, 0, 0, 0],
-    dtype=jnp.float64,
-)
-
+def distance(dR):
+    """Computes the distance between points, safely handling zero distances"""
+    dr = jnp.sum(dR ** 2, axis=-1)
+    return jnp.where(dr > 0, jnp.sqrt(dr), 0)
 
 def get_positions(q, ppos):
-    Mat = []
-    for i in range(2):
-        qi = i * 6
-        Mat.append(utils.convert_to_matrix(q[qi : qi + 6]))
+    """Gets the real positions of the monomers in the dimer"""
+    Mat = [utils.convert_to_matrix(q[i*6:(i+1)*6]) for i in range(2)]
+    return [jts.matrix_apply(Mat[i], ppos[i]) for i in range(2)]
 
-    real_ppos = []
-    for i in range(2):
-        real_ppos.append(jts.matrix_apply(Mat[i], ppos[i]))
-
-    return real_ppos
-
-
-rep_rmax_table = jnp.full((n_species, n_species), small_value)
-rep_rmax_table = rep_rmax_table.at[jnp.diag_indices(n_species)].set(2 * vertex_radius)
-rep_rmax_table = rep_rmax_table.at[0, 0].set(small_value)
-
-rep_alpha_table = jnp.full((n_species, n_species), small_value)
-rep_alpha_table = rep_alpha_table.at[jnp.diag_indices(n_species)].set(2.5)
-rep_alpha_table = rep_alpha_table.at[0, 0].set(small_value)
-
-rep_A_table = jnp.full((n_species, n_species), 500.0)
-rep_A_table = rep_A_table.at[0, 0].set(small_value)
-
-
-morse_narrow_alpha = 5.0
-morse_alpha_table = jnp.full((n_species, n_species), small_value)
-morse_alpha_table = morse_alpha_table.at[jnp.diag_indices(n_species)].set(
-    morse_narrow_alpha
-)
-morse_alpha_table = morse_alpha_table.at[0, 0].set(small_value)
-
-
-main_key, subkey = random.split(main_key)
-
-
+# ----------------------
+# Energy and Partition Function
+# ----------------------
 @jit
 def get_energy_fns(q, pos, species, opt_params):
-
+    """Calculates the energy of the dimer configuration"""
     Nbb = 2
-
-    morse_rcut = 8.0 / 5.0
-
+    morse_rcut = 8. / 5.
     sphere_radius = 1.0
-    patch_radius = 0.2 * sphere_radius
-
-    tot_energy = jnp.float64(0)
     real_ppos = get_positions(q, pos)
-
-    def j_repulsive_fn(j, pos1):
-        pos2 = real_ppos[1][j]
-        r = dist_fn(pos1 - pos2)
-        return potentials.repulsive(
-            r, rmin=0, rmax=sphere_radius * 2, A=500.0, alpha=2.5
-        )
-
-    def i_repulsive_fn(i):
-        pos1 = real_ppos[0][i]
-        all_j_terms = vmap(j_repulsive_fn, (0, None))(jnp.arange(3), pos1)
-        return jnp.sum(all_j_terms)
-
-    repulsive_sm = jnp.sum(vmap(i_repulsive_fn)(jnp.arange(3)))
-    tot_energy += repulsive_sm
-
-    pos1 = real_ppos[0][3]
-    pos2 = real_ppos[1][3]
-
-    r = dist_fn(pos1 - pos2)
-    tot_energy += potentials.morse_x(
-        r,
-        rmin=0,
-        rmax=morse_rcut,
-        D0=opt_params[0],
-        alpha=5.0,
-        r0=0.0,
-        ron=morse_rcut / 2.0,
-    )
-
-    pos1 = real_ppos[0][5]
-    pos2 = real_ppos[1][4]
-    r = dist_fn(pos1 - pos2)
-    tot_energy += potentials.morse_x(
-        r,
-        rmin=0,
-        rmax=morse_rcut,
-        D0=opt_params[1],
-        alpha=5.0,
-        r0=0.0,
-        ron=morse_rcut / 2.0,
-    )
-
-    pos1 = real_ppos[0][4]
-    pos2 = real_ppos[1][5]
-    r = dist_fn(pos1 - pos2)
-    tot_energy += potentials.morse_x(
-        r,
-        rmin=0,
-        rmax=morse_rcut,
-        D0=opt_params[2],
-        alpha=5.0,
-        r0=0.0,
-        ron=morse_rcut / 2.0,
-    )
-
+    tot_energy = 0.0
+    # Repulsive sphere-sphere
+    for i in range(3):
+        for j in range(3):
+            r = distance(real_ppos[0][i] - real_ppos[1][j])
+            tot_energy += potentials.repulsive(r, rmin=0, rmax=sphere_radius*2, A=500., alpha=2.5)
+    # Morse patch-patch
+    patch_pairs = [(3,3,0), (5,4,1), (4,5,2)]
+    for idx, (i1, i2, pidx) in enumerate(patch_pairs):
+        r = distance(real_ppos[0][i1] - real_ppos[1][i2])
+        tot_energy += potentials.morse_x(r, rmin=0, rmax=morse_rcut, D0=opt_params[pidx], alpha=5., r0=0.0, ron=morse_rcut/2.)
     return tot_energy
-
-
 
 def add_variables(ma, mb):
     """
@@ -280,14 +153,15 @@ def add_variables_all(mas, mbs):
     )
 
 
-
 def hess(energy_fn, q, pos, species, opt_params):
+    """Computes the Hessian matrix of the energy function"""
     H = hessian(energy_fn)(q, pos, species, opt_params)
     evals, evecs = jnp.linalg.eigh(H)
     return evals, evecs
 
 
 def compute_zvib(energy_fn, q, pos, species, opt_params):
+    """Computes the vibrational partition function component"""
     evals, evecs = hess(energy_fn, q, pos, species, opt_params)
     zvib = jnp.prod(
         jnp.sqrt(2.0 * jnp.pi / (opt_params[3] * (jnp.abs(evals[6:]) + 1e-12)))
@@ -298,6 +172,7 @@ def compute_zvib(energy_fn, q, pos, species, opt_params):
 def compute_zrot_mod_sigma(
     energy_fn, q, pos, species, opt_params, key, size, nrandom=100000
 ):
+    """Computes the rotational and configurational partition function component"""
     Nbb = size
     evals, evecs = hess(energy_fn, q, pos, species, opt_params)
 
@@ -323,6 +198,7 @@ def compute_zrot_mod_sigma(
 
 
 def compute_zc(boltzmann_weight, z_rot_mod_sigma, z_vib, sigma=3, V=V):
+    """Computes the complete partition function component"""
     z_trans = V
     z_rot = z_rot_mod_sigma / sigma
     return boltzmann_weight * z_trans * z_rot * z_vib
@@ -342,6 +218,7 @@ log_z_1 = safe_log(z_1s)
 
 
 def get_log_z_all(opt_params, key, rb=rb_2, shape=dimer_shape, species=dimer_species):
+    """Gets the logarithm of the partition function for all structures"""
     dim_energy_fn = get_energy_fns
     zvib = compute_zvib(dim_energy_fn, rb, shape, species, opt_params)
     e0 = dim_energy_fn(rb, shape, species, opt_params)
@@ -360,6 +237,7 @@ nper_structure = nper_structure = jnp.array([[0, 1, 1], [1, 0, 1]])
 
 
 def loss_fn(log_concs_struc, log_z_list, opt_params):
+    """Calculates the loss for the optimization problem"""
     m_conc = opt_params[-n:]
     tot_conc = jnp.sum(m_conc)
     log_mon_conc = safe_log(m_conc)
@@ -398,6 +276,7 @@ def loss_fn(log_concs_struc, log_z_list, opt_params):
 
 
 def optimality_fn(log_concs_struc, log_z_list, opt_params):
+    """Gradient of the loss function for optimization"""
     return grad(
         lambda log_concs_struc, log_z_list, opt_params: loss_fn(
             log_concs_struc, log_z_list, opt_params
@@ -407,6 +286,7 @@ def optimality_fn(log_concs_struc, log_z_list, opt_params):
 
 @implicit_diff.custom_root(optimality_fn)
 def inner_solver(init_guess, log_z_list, opt_params):
+    """Inner solver for the implicit differentiation"""
     gd = GradientDescent(
         fun=lambda log_concs_struc, log_z_list, opt_params: loss_fn(
             log_concs_struc, log_z_list, opt_params
@@ -427,6 +307,7 @@ def inner_solver(init_guess, log_z_list, opt_params):
 
 
 def ofer(opt_params, key):
+    """Outer function for optimization, orchestrating the yield maximization"""
     log_z_list, new_key = get_log_z_all(opt_params, key)
     tot_conc = jnp.sum(opt_params[-n:])
     struc_concs_guess = jnp.full(3, safe_log(tot_conc / 3))
@@ -438,12 +319,14 @@ def ofer(opt_params, key):
 
 
 def ofer_grad_fn(opt_params, key):
+    """Gradient function for the ofer function"""
     target_yield, new_key = ofer(opt_params, key)
     loss = target_yield
     return -loss, new_key
 
 
 def project(params):
+    """Projects the parameters onto their feasible set"""
     conc_min, conc_max = 1e-6, 3.0
     kbt_min, kbt_max = 1e-6, 3.0
     kbt_idx = 3
@@ -459,6 +342,7 @@ mask = mask.at[:3].set(1.0)
 
 
 def masked_grads(grads):
+    """Applies the mask to the gradients"""
     return grads * mask
 
 
