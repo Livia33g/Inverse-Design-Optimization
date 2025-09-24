@@ -1,212 +1,119 @@
+"""
+Dimer Optimization Script
+------------------------
+Optimizes dimer system parameters using JAX and partition function calculations.
+"""
+
+# ----------------------
+# Imports
+# ----------------------
 import numpy as onp
-import pickle
-import time
 import jax.numpy as jnp
 import optax
 from jax import (
-    random,
-    vmap,
-    hessian,
-    jacfwd,
-    jit,
-    value_and_grad,
-    grad,
-    lax,
-    checkpoint,
-    clear_backends,
+    random, vmap, hessian, jacfwd, jit, value_and_grad, grad
 )
 from tqdm import tqdm
-from jax_md import space
 import potentials
 import utils
-import shapes as sp
 import jax_transformations3d as jts
 from jaxopt import implicit_diff, GradientDescent
-from checkpoint import checkpoint_scan
-import pdb
+import os
 import functools
 from functools import partial
 import itertools
-import matplotlib.pyplot as plt
-from jax.config import config
+import pickle
+import time
+import pdb
 import gc
-import os
+from jax.config import config
 
-
-SEED = 42
-main_key = random.PRNGKey(SEED)
-
-@partial(jit, static_argnums=(1,))
-
-def safe_mask(mask, fn, operand, placeholder=0):
-  masked = jnp.where(mask, operand, 0)
-  return jnp.where(mask, fn(masked), placeholder)
-
-def distance(dR):
-  dr = jnp.sum(dR ** 2, axis=-1)
-  return safe_mask(dr > 0, jnp.sqrt, dr)
-
-
-# dist_fn = jnp.linalg.norm
-dist_fn = distance
-
-
+# Euler scheme for rotations
+# (used in jts.euler_from_matrix and jts.euler_from_quaternion)
 euler_scheme = "sxyz"
 
-def safe_log(x, eps=1e-10):
-    return jnp.log(jnp.clip(x, a_min=eps, a_max=None))
-
-# Shape and energy helper functions
-a = 1.0  # distance of the center of the spheres from the BB COM
-b = 0.3 
-n = 2 # distance of the center of the patches from the BB COM
+# ----------------------
+# User Parameters
+# ----------------------
+SEED = 42
+main_key = random.PRNGKey(SEED)
+a = 1.0  # sphere center distance
+b = 0.3  # patch center distance
+n = 2    # number of building blocks
 separation = 2.0
-noise = 1e-14
 vertex_radius = a
 patch_radius = 0.2 * a
 small_value = 1e-12
-vertex_species = 0
-n_species = 4 
-
+n_species = 4
 init_patchy_vals = 4.5
-
 patchy_vals = jnp.full(3, init_patchy_vals)
 init_conc_val = 0.0005
 init_conc = jnp.full(n, init_conc_val)
-
 init_kT = jnp.array([0.5])
 init_params = jnp.concatenate([patchy_vals, init_kT, init_conc])
 V = 54000
 
- 
-#mon_shapes = [sp.make_shape(1, a, b, edge_patches="right"), sp.make_shape(1, a, b, edge_patches="right")]
-
-a = 1 # distance of the center of the spheres from the BB COM
-b = .3 # distance of the center of the patches from the BB COM
+# ----------------------
+# Geometry Setup
+# ----------------------
 mon_shape1 = onp.array([
-    [0., 0., a], # first sphere
-    [0., a*onp.cos(onp.pi/6.), -a*onp.sin(onp.pi/6.)], # second sphere
-    [0., -a*onp.cos(onp.pi/6.), -a*onp.sin(onp.pi/6.)], # third sphere
-    [a, 0., b], # first patch
-    [a, b*onp.cos(onp.pi/6.), -b*onp.sin(onp.pi/6.)], # second patch
-    [a, -b*onp.cos(onp.pi/6.), -b*onp.sin(onp.pi/6.)]  # third patch
+    [0., 0., a],
+    [0., a*onp.cos(onp.pi/6.), -a*onp.sin(onp.pi/6.)],
+    [0., -a*onp.cos(onp.pi/6.), -a*onp.sin(onp.pi/6.)],
+    [a, 0., b],
+    [a, b*onp.cos(onp.pi/6.), -b*onp.sin(onp.pi/6.)],
+    [a, -b*onp.cos(onp.pi/6.), -b*onp.sin(onp.pi/6.)]
 ])
-
 mon_shape2 = jts.matrix_apply(jts.reflection_matrix(jnp.array([0, 0, 0], dtype=jnp.float64),
                                                    jnp.array([1, 0, 0], dtype=jnp.float64)),
-                             mon_shape1
-                         )
+                             mon_shape1)
 mon_shape2  = jts.matrix_apply(jts.reflection_matrix(jnp.array([0, 0, 0], dtype=jnp.float64),
                                                    jnp.array([0, 1, 0], dtype=jnp.float64)),
-                             mon_shape2
-)
-
+                             mon_shape2)
 dimer_shape = jnp.array([mon_shape1, mon_shape2])
-
-
-
-
 mon_species_1 = onp.array([0,0,0,1,2,3])
 mon_species_2 = onp.array([0,0,0,1,3,2])
 dimer_species = onp.array([0,0,0,1,3,2,0,0,0,1,2,3])
-
-
 rb_1 = jnp.array([-separation/2.0, 1e-15, 0, 0, 0, 0])   
 rb_2 = jnp.array([-separation/2.0, 1e-15, 0, 0, 0, 0,
                 separation/2.0, 0, 0, 0, 0, 0], dtype=jnp.float64)   
-  
-    
+
+# ----------------------
+# Utility Functions
+# ----------------------
+def safe_log(x, eps=1e-10):
+    return jnp.log(jnp.clip(x, a_min=eps, a_max=None))
+
+def distance(dR):
+    dr = jnp.sum(dR ** 2, axis=-1)
+    return jnp.where(dr > 0, jnp.sqrt(dr), 0)
+
 def get_positions(q, ppos):
-    Mat = []
-    for i in range(2):
-        qi = i*6
-        Mat.append(utils.convert_to_matrix(q[qi:qi+6]))
+    Mat = [utils.convert_to_matrix(q[i*6:(i+1)*6]) for i in range(2)]
+    return [jts.matrix_apply(Mat[i], ppos[i]) for i in range(2)]
 
-    real_ppos = []
-    for i in range(2):
-        real_ppos.append(jts.matrix_apply(Mat[i], ppos[i]))
-
-    return real_ppos    
-    
-rep_rmax_table = jnp.full((n_species, n_species), small_value)
-rep_rmax_table = rep_rmax_table.at[jnp.diag_indices(n_species)].set(2 * vertex_radius)
-rep_rmax_table = rep_rmax_table.at[0, 0].set(small_value)
-
-rep_alpha_table = jnp.full((n_species, n_species), small_value)
-rep_alpha_table = rep_alpha_table.at[jnp.diag_indices(n_species)].set(2.5)
-rep_alpha_table = rep_alpha_table.at[0, 0].set(small_value)
-
-rep_A_table = jnp.full((n_species, n_species), 500.0)
-rep_A_table = rep_A_table.at[0, 0].set(small_value)
-
-
-morse_narrow_alpha =5.
-morse_alpha_table = jnp.full((n_species, n_species), small_value)
-morse_alpha_table = morse_alpha_table.at[jnp.diag_indices(n_species)].set(morse_narrow_alpha)
-morse_alpha_table = morse_alpha_table.at[0, 0].set(small_value)
-
-
-main_key, subkey = random.split(main_key)
-
+# ----------------------
+# Energy and Partition Function
+# ----------------------
 @jit
 def get_energy_fns(q, pos, species, opt_params):
-
     Nbb = 2
-
     morse_rcut = 8. / 5.
-    
     sphere_radius = 1.0
-    patch_radius = 0.2 * sphere_radius
-
-
-    tot_energy = jnp.float64(0)
     real_ppos = get_positions(q, pos)
-    def j_repulsive_fn(j, pos1):
-        pos2 = real_ppos[1][j]
-        r = dist_fn(pos1-pos2)
-        return potentials.repulsive(
-            r, rmin=0, rmax=sphere_radius*2,
-            A=500., alpha=2.5)
+    tot_energy = 0.0
+    # Repulsive sphere-sphere
+    for i in range(3):
+        for j in range(3):
+            r = distance(real_ppos[0][i] - real_ppos[1][j])
+            tot_energy += potentials.repulsive(r, rmin=0, rmax=sphere_radius*2, A=500., alpha=2.5)
+    # Morse patch-patch
+    patch_pairs = [(3,3,0), (5,4,1), (4,5,2)]
+    for idx, (i1, i2, pidx) in enumerate(patch_pairs):
+        r = distance(real_ppos[0][i1] - real_ppos[1][i2])
+        tot_energy += potentials.morse_x(r, rmin=0, rmax=morse_rcut, D0=opt_params[pidx], alpha=5., r0=0.0, ron=morse_rcut/2.)
+    return tot_energy
 
-    def i_repulsive_fn(i):
-        pos1 = real_ppos[0][i]
-        all_j_terms = vmap(j_repulsive_fn, (0, None))(jnp.arange(3), pos1)
-        return jnp.sum(all_j_terms)
-
-    repulsive_sm = jnp.sum(vmap(i_repulsive_fn)(jnp.arange(3)))
-    tot_energy += repulsive_sm        
-
-    pos1 = real_ppos[0][3]
-    pos2 = real_ppos[1][3]
-
-    r = dist_fn(pos1-pos2)
-    tot_energy += potentials.morse_x(
-        r, rmin=0, rmax=morse_rcut,
-        D0=opt_params[0],
-        alpha=5., r0=0.0,
-        ron=morse_rcut/2.)
-
-    pos1 = real_ppos[0][5]
-    pos2 = real_ppos[1][4]
-    r = dist_fn(pos1-pos2)
-    tot_energy += potentials.morse_x(
-        r, rmin=0, rmax=morse_rcut,
-        D0=opt_params[1],
-    alpha=5., r0=0.0,
-        ron=morse_rcut/2.)
-
-
-    pos1 = real_ppos[0][4]
-    pos2 = real_ppos[1][5]
-    r = dist_fn(pos1-pos2)
-    tot_energy += potentials.morse_x(
-        r, rmin=0, rmax=morse_rcut,
-        D0=opt_params[2],
-    alpha=5., r0=0.0,
-        ron=morse_rcut/2.)
-
-
-    return tot_energy 
 
 def add_variables(ma, mb):
     """
@@ -217,8 +124,8 @@ def add_variables(ma, mb):
     note: add_variables(ma,mb) != add_variables(mb,ma)
     """
 
-    Ma = convert_to_matrix(ma)
-    Mb = convert_to_matrix(mb)
+    Ma = utils.convert_to_matrix(ma)
+    Mb = utils.convert_to_matrix(mb)
     Mab = jnp.matmul(Mb,Ma)
     trans = jnp.array(jts.translation_from_matrix(Mab))
     angles = jnp.array(jts.euler_from_matrix(Mab, euler_scheme))
