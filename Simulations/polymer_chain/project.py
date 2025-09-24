@@ -1,3 +1,13 @@
+"""
+Signac FlowProject for Polymer Chain Simulations
+------------------------------------------------
+Defines initialization and equilibration operations for rigid monomer systems using HOOMD-blue.
+- Initializes random rigid bodies in a cubic box.
+- Sets up pair potentials and integrator.
+- Handles logging and box resizing.
+- Equilibrates the system and saves output files.
+"""
+
 import numpy as np
 import jax.numpy as jnp
 from jax import vmap, grad
@@ -32,19 +42,20 @@ def initialized(job):
 @Project.operation(directives={"walltime": 1, "nranks": 1})
 def initialize(job):
     """Initialize a system of rigid monomers randomly distributed in a cubic box."""
-
+    # Extract parameters from job
     box_length = job.sp.box_L
     monomer_counts = job.sp.monomer_counts
     total_monomers = sum(monomer_counts.values())
-
     r = job.sp.r
     a = job.sp.a
     b = job.sp.b
 
+    # Define constituent types for each monomer type
     typesA = ["AP1", "AP1", "AP1", "AM", "AM", "AM", "AP2", "AP2", "AP2"]
     typesB = ["BP1", "BP1", "BP1", "BM", "BM", "BM", "BP2", "BP2", "BP2"]
     typesC = ["CP1", "CP1", "CP1", "CM", "CM", "CM", "CP2", "CP2", "CP2"]
 
+    # Define positions of constituents within a monomer
     monomer_positions = np.array(
         [
             [-a, 0.0, b],
@@ -70,19 +81,18 @@ def initialize(job):
         min_distance = 1.5
         buffer = max(a, b)
         lower_bound, upper_bound = -box_length / 2 + buffer, box_length / 2 - buffer
-
         if not (
             lower_bound <= new_cm_pos[0] <= upper_bound
             and lower_bound <= new_cm_pos[1] <= upper_bound
             and lower_bound <= new_cm_pos[2] <= upper_bound
         ):
             return False  # Prevent placement near boundaries
-
         return all(
             np.linalg.norm(new_cm_pos - cm_pos) > min_distance
             for cm_pos in monomer_centers
         )
 
+    # Randomly place monomers in the box, avoiding overlaps
     for monomer_type, count in monomer_counts.items():
         for _ in range(count):
             while True:
@@ -91,7 +101,7 @@ def initialize(job):
                     monomer_centers.append(new_cm_pos)
                     orientations.append(
                         Rotation.random().as_quat(scalar_first=True)
-                    )  # Scalar first to go along with proper HOOMD convention.
+                    )  # Scalar first for HOOMD
                     monomer_type_ids.append(type_name_to_id_mapping[monomer_type])
                     break
 
@@ -103,72 +113,31 @@ def initialize(job):
         len(monomer_type_ids) == expected_particles
     ), f"Shape mismatch! Expected {expected_particles}, got {len(monomer_type_ids)}"
 
+    # Set up HOOMD simulation
     device = hoomd.device.GPU()
     simulation = hoomd.Simulation(device=device, seed=job.sp.seed)
-
     snapshot = hoomd.Snapshot()
-
     snapshot.configuration.box = [box_length, box_length, box_length, 0, 0, 0]
-
     snapshot.particles.types = [
-        "A",
-        "B",
-        "C",
-        "AP1",
-        "AM",
-        "AP2",
-        "BP1",
-        "BM",
-        "BP2",
-        "CP1",
-        "CM",
-        "CP2",
+        "A", "B", "C", "AP1", "AM", "AP2", "BP1", "BM", "BP2", "CP1", "CM", "CP2"
     ]
-
-    snapshot.particles.N = total_monomers  # Ensure HOOMD knows how many particles exist
-
+    snapshot.particles.N = total_monomers
     snapshot.particles.typeid[:] = monomer_type_ids
-
     snapshot.particles.position[:] = monomer_centers
-
     snapshot.particles.orientation[:] = orientations
 
+    # Calculate moment of inertia for each monomer
     MOI = np.zeros(3)
-
     for i, pos in enumerate(monomer_positions):
         mass = 1.0 if i in [3, 4, 5] else 0.2
-        MOI[0] += mass * (
-            pos[1] ** 2 + pos[2] ** 2
-        )  # I_xx = Sum(m_i * (y_i^2 + z_i^2))
-        MOI[1] += mass * (
-            pos[0] ** 2 + pos[2] ** 2
-        )  # I_yy = Sum(m_i * (x_i^2 + z_i^2))
-        MOI[2] += mass * (
-            pos[0] ** 2 + pos[1] ** 2
-        )  # I_zz = Sum(m_i * (x_i^2 + y_i^2))
-
+        MOI[0] += mass * (pos[1] ** 2 + pos[2] ** 2)
+        MOI[1] += mass * (pos[0] ** 2 + pos[2] ** 2)
+        MOI[2] += mass * (pos[0] ** 2 + pos[1] ** 2)
     moi_core = MOI.tolist()
-
-    # moi_map = {
-    #     'AP1': [0, 0, 0], 'AP2': [0, 0, 0], 'AM': moi_core,
-    #     'BP1': [0, 0, 0], 'BP2': [0, 0, 0], 'BM': moi_core,
-    #     'CP1': [0, 0, 0], 'CP2': [0, 0, 0], 'CM': moi_core
-    # }
-
     snapshot.particles.moment_inertia[:] = np.array([moi_core] * total_monomers)
-
-    # diameter_map = {
-    #     'AP1': 2 * b, 'AP2': 2 * b, 'AM': 2 * a,
-    #     'BP1': 2 * b, 'BP2': 2 * b, 'BM': 2 * a,
-    #     'CP1': 2 * b, 'CP2': 2 * b, 'CM': 2 * a
-    # }
-    #
-    # snapshot.particles.diameter[:] = np.array([
-    #     diameter_map[type_id_to_name[t]] for t in expanded_type_ids
-    # ]) # Can play with this later, but this only affects things for visualization purposes.
-
     snapshot.particles.charge[:] = np.array([0.0]) * total_monomers
 
+    # Set up rigid body definitions
     rigid = md.constrain.Rigid()
     rigid.body["A"] = {
         "constituent_types": typesA,
@@ -187,17 +156,16 @@ def initialize(job):
     }
 
     simulation.create_state_from_snapshot(snapshot)
-    rigid.create_bodies(
-        simulation.state
-    )  # Adds consituents body particles to the system.
+    rigid.create_bodies(simulation.state)
 
+    # Save constituent info for later use
     np.save(job.fn("positions.npy"), monomer_positions)
     np.save(job.fn("orientations.npy"), np.array([[1, 0, 0, 0]] * 9))
     np.save(job.fn("types.npy"), np.array([typesA, typesB, typesC]))
 
-    print(
-        f"Initialized system with {total_monomers} rigid bodies in a {box_length}³ box."
-    )
+    print(f"Initialized system with {total_monomers} rigid bodies in a {box_length}³ box.")
+
+    # Set up pair potentials
     nl = hoomd.md.nlist.Cell(buffer=0, exclusions=["body"])
     morse = md.pair.Morse(default_r_cut=job.sp.r_cut, nlist=nl)
     table = md.pair.Table(nlist=nl, default_r_cut=job.sp.rep_r_cut)
@@ -212,7 +180,6 @@ def initialize(job):
             base = jnp.maximum(rmax - r, epsilon)
             potential = (A / (alpha * rmax)) * base**alpha
             return jnp.where(r < rmax, potential * smooth_step(r, rmin, rmax), 0.0)
-
         return _V
 
     repulsive = repulsive_potential(
@@ -226,17 +193,11 @@ def initialize(job):
         np.array(-1 * vmap(grad(repulsive))(jnp.linspace(0, job.sp.rep_r_cut, 1001))),
     )
 
-    # Use simulation.state.types instead of system.particles.types
     set_pair_potentials_params(
         job, morse, table, tabulated_repulsive, snapshot.particles.types
     )
 
-    """ Options for potential shifting:
-    none - No shifting; potentials are cut off abruptly.
-    shift - Applies a constant shift so potential is 0 at cutoff.
-    xplor - Smooth function applied for a gradual force and potential decrease.
-    """
-    morse.mode = "shift"
+    morse.mode = "shift"  # Potential shifting mode
 
     # Set up integrator
     integrator = md.Integrator(dt=job.sp.dt, integrate_rotational_dof=True)
@@ -273,7 +234,6 @@ def initialize(job):
             "rotational_kinetic_energy",
         ],
     )
-
     hdf5_writer = hoomd.write.HDF5Log(
         trigger=hoomd.trigger.Periodic(int(job.sp.log_period)),
         filename=job.fn("init_log.h5"),
@@ -284,9 +244,8 @@ def initialize(job):
 
     # Adjust the system's box if needed
     concentration = job.sp.concentration
-    total_N = total_monomers * 9  # No more uc.N * job.sp.Nx * job.sp.Ny * job.sp.Nz
+    total_N = total_monomers * 9
     final_L = (total_N / concentration) ** (1 / 3)
-
     inverse_volume_ramp = hoomd.variant.box.InverseVolumeRamp(
         initial_box=simulation.state.box,
         final_volume=final_L**3,
@@ -325,18 +284,17 @@ def dumped(job):
 @Project.post(dumped)
 @Project.operation(directives={"walltime": 48, "nranks": 1})
 def equilibrate(job):
+    """Equilibrate the system after initialization and save trajectory/logs."""
     import hoomd
     from hoomd import md
     from pair_potentials import set_pair_potentials_params
 
     types = np.load(job.fn("types.npy"), allow_pickle=True).tolist()
     typesA, typesB, typesC = list(types[0]), list(types[1]), list(types[2])
-
     positions = np.load(job.fn("positions.npy"))
     orientations = np.load(job.fn("orientations.npy"))
 
-    # device = hoomd.device.CPU(notice_level=10) # Run on CPU
-    device = hoomd.device.GPU()  # Run on gpu
+    device = hoomd.device.GPU()
     simulation = hoomd.Simulation(device=device, seed=job.sp.seed)
     simulation.create_state_from_gsd(filename=job.fn("init.gsd"))
 
@@ -356,7 +314,6 @@ def equilibrate(job):
         "positions": positions,
         "orientations": orientations,
     }
-    # rigid.create_bodies(simulation.state) # I believe this is redundant, but anyhow...
 
     # Set up pair potentials
     nl = hoomd.md.nlist.Cell(buffer=0, exclusions=["body"])
@@ -371,10 +328,8 @@ def equilibrate(job):
         def _V(r):
             epsilon = 1e-6
             base = jnp.maximum(rmax - r, epsilon)
-            # smoothing_factor = smooth_step(r, rmin, rmax)
             potential = (A / (alpha * rmax)) * base**alpha
             return jnp.where(r < rmax, potential * smooth_step(r, rmin, rmax), 0.0)
-
         return _V
 
     repulsive = repulsive_potential(
@@ -392,11 +347,6 @@ def equilibrate(job):
         job, morse, table, tabulated_repulsive, simulation.state.types["particle_types"]
     )
 
-    """ Options here are the following:
-    none - No shifting is performed and potentials are abruptly cut off
-    shift - A constant shift is applied to the entire potential so that it is 0 at the cutoff
-    xplor - A smoothing function is applied to gradually decrease both the force and potential to 0 at the cutoff when ron < rcut, and shifts the potential to 0 at the cutoff when ron >= rcut.
-    """
     morse.mode = "shift"
 
     integrator = md.Integrator(dt=job.sp.dt, integrate_rotational_dof=True)
@@ -439,18 +389,12 @@ def equilibrate(job):
     )
     simulation.operations.writers.append(hdf5_writer)
 
-    # pos = deprecated.dump.pos(filename = job.fn('dump.pos'), unwrap_rigid = True, period = job.sp.dump_period*10)
-    # pos.set_def('A', 'sphere 1 a6a6a6')
-    # pos.set_def('D', 'dipole 1 0 b31b1b f7f7f7')
-    # pos.set_def('B', 'sphere 1 a6a6a6')
-
     gsd = hoomd.write.GSD(filename=job.fn("dump.gsd"), trigger=int(job.sp.dump_period))
     simulation.operations.writers.append(gsd)
 
     for kT in np.arange(2.0 + job.sp.kT, job.sp.kT, -0.1):
         md_int.thermostat.kT = kT
         simulation.run(5e5)
-
     md_int.thermostat.kT = job.sp.kT
     simulation.run(job.sp.run_step)
 

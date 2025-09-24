@@ -1,27 +1,34 @@
+"""
+Signac Job Initialization for Polymer Chain Simulations
+------------------------------------------------------
+Reads simulation parameters from a file, computes box size and monomer counts to match target concentrations,
+and initializes Signac jobs for each parameter set and replica.
+"""
+
 import signac
 import numpy as np
 import random
 import math
 
+# Initialize Signac project
 project = signac.init_project()
 
 # System parameters
-replicas = [1, 2, 3]
-alpha = 5.0
+replicas = [1, 2, 3]  # Replica IDs
+alpha = 5.0  # Potential parameter
 
-# Target total concentration
-target_total_concentration = 0.001
-
-# File containing simulation parameters
-parameter_file = "all_params.txt"
-
+target_total_concentration = 0.001  # Default target total concentration
+parameter_file = "all_params.txt"  # File with simulation parameters
 simulation_parameters = []
 
+# ----------------------
+# Read simulation parameters from file
+# ----------------------
 with open(parameter_file, "r") as f:
     for line in f:
         line = line.strip()
-        if not line:  # Skip empty lines
-            continue
+        if not line:
+            continue  # Skip empty lines
         values = line.split(",")
         try:
             target_yield = float(values[1])
@@ -34,28 +41,27 @@ with open(parameter_file, "r") as f:
         except ValueError:
             print(f"Warning: Skipping line with invalid numeric values: {line}")
             continue
-
         monomer_concentrations = {"A": conc_A, "B": conc_B, "C": conc_C}
+        simulation_parameters.append((target_yield, d_types, monomer_concentrations, kT))
 
-        simulation_parameters.append(
-            (target_yield, d_types, monomer_concentrations, kT)
-        )
-
-# Step 1: Initial guesses
-initial_total_volume = 300000  # Initial estimate of system volume
-initial_side_length = 12.0
-max_iterations = 100
-tolerance = 0.00005
-
-
+# ----------------------
+# System size and concentration refinement
+# ----------------------
 def refine_system(volume, target_concentration, monomer_concentrations):
     """Adjust the number of particles and system volume to match concentration constraints."""
     total_monomers = sum(monomer_concentrations.values())
     computed_concentration = total_monomers / volume
     return total_monomers, volume, computed_concentration
 
+# Initial guesses and settings
+initial_total_volume = 300000  # Initial estimate of system volume
+initial_side_length = 12.0
+max_iterations = 100
+tolerance = 0.00005
 
+# ----------------------
 # Iterate over parameters and create Signac jobs
+# ----------------------
 for (target_yield, d_types, monomer_concentrations, kT) in simulation_parameters:
     for replica in replicas:
         # Adjust monomer counts to match concentration constraints
@@ -65,14 +71,12 @@ for (target_yield, d_types, monomer_concentrations, kT) in simulation_parameters
             k: max(1, round(v / base_concentration))
             for k, v in monomer_concentrations.items()
         }
-
         # Scale to meet the approximate total concentration
         scaling_factor = target_total_concentration / sum(monomer_concentrations.values())
         monomer_counts = {
             k: max(1, round(v * scaling_factor * initial_total_volume))
             for k, v in monomer_concentrations.items()
         }
-
         # Iteratively refine box size and particle count
         current_volume = initial_total_volume
         for _ in range(max_iterations):
@@ -82,17 +86,14 @@ for (target_yield, d_types, monomer_concentrations, kT) in simulation_parameters
             if abs(computed_concentration - target_total_concentration) <= tolerance:
                 break
             current_volume *= target_total_concentration / computed_concentration
-
         # Compute final box size
         final_side_length = round(adjusted_volume ** (1 / 3), 2)
-
         # Debugging output
         print(f"Final monomer counts: {monomer_counts}")
         print(f"Final box size: {final_side_length:.2f}³")
         print(f"Final total concentration: {computed_concentration:.6f}")
         print(f"Temperature (kT): {kT}")
         print(f"d_types (potentials from values[3:18]): {d_types}")
-
         # Pass parameters to Signac jobs
         sp = {
             # System Information

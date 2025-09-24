@@ -2,7 +2,6 @@
 {% block header %}
 #!/bin/bash
 #SBATCH --gres=gpu
-#SBATCH -p gpu,seas_gpu
 #SBATCH --mem=16G
 #SBATCH -n 1
 #SBATCH -N 1
