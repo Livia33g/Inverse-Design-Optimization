@@ -2,7 +2,6 @@
 Dimer Yield Maximization Script
 ------------------------------
 Maximizes dimer yield using JAX and partition function calculations.
-Lightly cleaned for clarity and usability. All scientific logic is preserved.
 """
 
 # ----------------------
