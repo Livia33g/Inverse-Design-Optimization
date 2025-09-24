@@ -305,7 +305,7 @@ def inner_solver(init_guess, log_z_list, opt_params):
     return final_params
 
 
-def ofer(opt_params, key):
+def yield_solver(opt_params, key):
     """Outer function for optimization, orchestrating the yield maximization"""
     log_z_list, new_key = get_log_z_all(opt_params, key)
     tot_conc = jnp.sum(opt_params[-n:])
@@ -317,9 +317,9 @@ def ofer(opt_params, key):
     return target_yield, new_key
 
 
-def ofer_grad_fn(opt_params, key):
-    """Gradient function for the ofer function"""
-    target_yield, new_key = ofer(opt_params, key)
+def yield_solver_grad_fn(opt_params, key):
+    """Gradient function for the yield_solver function"""
+    target_yield, new_key = yield_solver(opt_params, key)
     loss = target_yield
     return -loss, new_key
 
@@ -345,7 +345,7 @@ def masked_grads(grads):
     return grads * mask
 
 
-our_grad_fn = jit(value_and_grad(ofer_grad_fn, has_aux=True))
+our_grad_fn = jit(value_and_grad(yield_solver_grad_fn, has_aux=True))
 params = init_params
 outer_optimizer = optax.adam(1e-2)
 opt_state = outer_optimizer.init(params)
@@ -392,12 +392,12 @@ with open(output_filename, "w") as f:
         }.items():
             print(f"{name}: {value}")
         print(params)
-        fin_yield, main_key = ofer(params, main_key)
+        fin_yield, main_key = yield_solver(params, main_key)
         fin_yield = jnp.exp(fin_yield)
         print(f"Yield: {fin_yield}")
 
     final_params = params
-    fin_yield, main_key = ofer(params, main_key)
+    fin_yield, main_key = yield_solver(params, main_key)
     final_target_yields = jnp.exp(fin_yield)
 
     f.write(
