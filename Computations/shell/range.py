@@ -1,3 +1,13 @@
+"""
+Range Optimization Script for Octahedral Shell Assembly
+------------------------------------------------------
+This script finds attraction parameters that MINIMIZE yield at a set high temperature
+and MAXIMIZE yield at a set low temperature for octahedral shell assembly.
+
+- The loss function penalizes high yield at high T and low yield at low T.
+- Output is saved in 'optimized_range_results/'.
+"""
+
 #!/usr/bin/env python
 import pdb
 import os
@@ -145,9 +155,9 @@ def load_rb_orientation_vec():
     return full_shell, rb_shape_vec, rb_species_vec
 
 
-def get_octa_shape_and_species(size):
+def get_octa_shape_and_species(size, base_species):
+    """Return shape and species arrays for octahedral geometry, with explicit base_species."""
     _, base_shape, _ = load_rb_orientation_vec()
-    base_species = jnp.array([0, 1, 2, 1, 2])
     return jnp.array([base_shape for _ in range(size)]), jnp.array(
         [base_species for _ in range(size)]
     )
@@ -369,7 +379,9 @@ full_shell = load_rb_orientation_vec()[0]
 adj_ma = are_blocks_connected_rb(full_shell, vertex_radius=2.1, tolerance=0.2)
 rbs = generate_connected_subsets_rb(full_shell, adj_ma)
 rbs = [rb.flatten() for rb in rbs]
-shapes_species = [get_icos_shape_and_species(size) for size in range(1, 7)]
+# Explicit base_species for octahedral geometry
+base_species = jnp.array([0, 1, 2, 1, 2])
+shapes_species = [get_octa_shape_and_species(size, base_species) for size in range(1, 7)]
 shapes, species = zip(*shapes_species)
 
 # --- Precompute Energy Functions ---
@@ -517,33 +529,6 @@ def ofer(opt_params):
     return log_yield_h, log_yield_l
 
 
-# def ofer_grad_fn(opt_params, desired_yield_val_h, desired_yield_val_l):
-#     log_yield_h, log_yield_l = ofer(opt_params)
-#     target_h = jnp.log(desired_yield_val_h)
-#     target_l = jnp.log(desired_yield_val_l)
-#     energy_penalty = sum(
-#         [
-#             energy_fns[size](
-#                 rbs[size - 1], shapes[size - 1], species[size - 1], opt_params
-#             )
-#             for size in range(2, 7)
-#         ]
-#     )
-#     loss_h = (
-#         (1.0 - jnp.exp(log_yield_h)) ** 2
-#         + 0.1 * (log_yield_h - target_h) ** 2
-#         + 0.05 * energy_penalty
-#     )
-#     loss_l = (
-#         (1.0 - jnp.exp(log_yield_l)) ** 2
-#         + 0.1 * (log_yield_l - target_l) ** 2
-#         + 0.05 * energy_penalty
-#     )
-#     #total_loss = 100 * (loss_l - loss_h)
-#     total_loss = (1)
-#     return total_loss
-
-
 num_params = len(init_params)
 mask = jnp.zeros(num_params)
 
@@ -561,12 +546,6 @@ def enforce_param_bounds(params):
     return params.at[0].set(jnp.maximum(params[0], 0.5))
 
 
-# our_grad_fn = jit(
-#     value_and_grad(
-#         lambda p, yh, yl: (yh - jnp.exp(ofer(p)[0])) ** 2
-#         + (yl - jnp.exp(ofer(p)[1])) ** 2
-#     )
-# )
 our_grad_fn = jit(
     value_and_grad(
         lambda p, yh, yl: abs(yh - jnp.exp(ofer(p)[0])) + abs(yl - jnp.exp(ofer(p)[1]))
@@ -602,12 +581,13 @@ def outer_step(params, opt_state, desired_yield_h, desired_yield_l):
     return new_params, opt_state, loss
 
 
-os.makedirs("Paper/600/percent", exist_ok=True)
+# --- Output Results ---
+os.makedirs("optimized_range_results", exist_ok=True)
 kt_high = args.kt_high
 kt_low = args.kt_low
 params = init_params
 opt_state = outer_optimizer.init(params)
-with open(f"Paper/600/percent/{kt_low}_{kt_high}.txt", "w") as f:
+with open(f"optimized_range_results/{kt_low}_{kt_high}.txt", "w") as f:
     for i in range(n_outer_iters):
         params, opt_state, loss = outer_step(
             params, opt_state, desired_yield_val_h, desired_yield_val_l
@@ -621,7 +601,7 @@ with open(f"Paper/600/percent/{kt_low}_{kt_high}.txt", "w") as f:
         print(params)
         fin_yield_h, final_yield_l = ofer(params)
         fin_yield_h = jnp.exp(fin_yield_h)
-        fin_yield_l = jnp.exp(final_yield_l)
+        fin_yield_l = jnp.exp(fin_yield_l)
 
         print(f"Yield high: {fin_yield_h}, Yield low: {fin_yield_l}")
         final_params = params
@@ -633,5 +613,4 @@ with open(f"Paper/600/percent/{kt_low}_{kt_high}.txt", "w") as f:
     f.write(
         f"{final_target_yields_h}, {final_target_yields_l},{params[0]},{params[-2]},{params[-1]},{percent}\n"
     )
-    # f.write(f"{des_yield}, {final_target_yields}, {params[0]}, {params[-1]}\n")
     f.flush()

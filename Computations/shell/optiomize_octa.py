@@ -1,84 +1,66 @@
-#!/usr/bin/env python
-import pdb
-import os
+"""
+Octahedron Shell Optimization Script
+-----------------------------------
+Optimizes parameters for octahedral shell assembly using JAX and partition function calculations.
 
-os.environ["XLA_FLAGS"] = "--xla_dump_to=/tmp/foo"
-from pathlib import Path
-import unittest
+"""
+
+# ----------------------
+# Imports
+# ----------------------
+import os
+import sys
+import argparse
+import itertools
+import numpy as np
+import jax.numpy as jnp
+from jax import (
+    random, vmap, hessian, jacfwd, jit, value_and_grad, grad, lax, checkpoint, device_get, block_until_ready
+)
 from tqdm import tqdm
 import utils
 import potentials
-from jax import (
-    random,
-    vmap,
-    hessian,
-    jacfwd,
-    jit,
-    value_and_grad,
-    grad,
-    lax,
-    checkpoint,
-    device_get,
-    block_until_ready,
-)
-import sys
-
-sys.stdout.flush()
-import optax
 from jaxopt import implicit_diff, GradientDescent, LBFGS
 from checkpoint import checkpoint_scan
-import functools
-import jax.numpy as jnp
+import jax_transformations3d as jts
 from jax_md import energy, space, simulate
 from jax_md.energy import morse, soft_sphere
 from jax_md import rigid_body as orig_rigid_body
-import potentials
-import jax_transformations3d as jts
+from jax.scipy.special import logsumexp
+from scipy.spatial import distance_matrix
 import absl.logging
+from pathlib import Path
+import optax
 
 absl.logging.set_verbosity(absl.logging.ERROR)
 
-# --- Set JAX configuration; disable JIT to prevent verbose tracer printing ---
-##config.update("jax_disable_jit", True)  # Disabling jit to avoid jax tracing output in prints.
-# config.update("jax_log_compiles", False)
-
-import itertools
-import numpy as np
-from scipy.spatial import distance_matrix
-from jax import debug
-import argparse
-from jax.scipy.special import logsumexp
-
-parser = argparse.ArgumentParser(
-    description="Run the rigid-body simulation with adjustable parameters."
-)
-# Using new defaults so that typical free energy differences are more moderate.
+# ----------------------
+# Argument Parsing & User Parameters
+# ----------------------
+parser = argparse.ArgumentParser(description="Run the rigid-body simulation with adjustable parameters.")
 parser.add_argument("--kt", type=float, default=5.0, help="Initial temperature (kbT)")
-parser.add_argument(
-    "--init_morse", type=float, default=12.0, help="Initial Morse epsilon"
-)
-parser.add_argument(
-    "--rep_alpha", type=float, default=1.0, help="Initial repulsion alpha"
-)
-parser.add_argument(
-    "--init_conc", type=float, default=0.001, help="Initial concentration"
-)
+parser.add_argument("--init_morse", type=float, default=12.0, help="Initial Morse epsilon")
+parser.add_argument("--rep_alpha", type=float, default=1.0, help="Initial repulsion alpha")
+parser.add_argument("--init_conc", type=float, default=0.001, help="Initial concentration")
 parser.add_argument("--number_mon", type=int, default=343, help="Number of monomers")
 parser.add_argument("--desired_yield", type=float, default=1.0, help="Desired yield")
 args = parser.parse_args()
 
+# Euler scheme for rotations
+# (used in jts.euler_from_matrix and jts.euler_from_quaternion)
 euler_scheme = "sxyz"
 V = args.number_mon * args.init_conc
-
 SEED = 42
 main_key = random.PRNGKey(SEED)
 # Parameter order: [morse_eps, morse_alpha, rep_A, rep_alpha, kbT]
 init_params = jnp.array([args.init_morse, 2.0, 10000.0, args.rep_alpha, args.kt])
 displacement_fn, shift_fn = space.free()
 
-
-# --- Utility: Quaternion to Euler conversion ---
+# ----------------------
+# Utility: Quaternion to Euler conversion
+# ----------------------
 def quat_to_euler(quaternions):
+    """Convert quaternion array to Euler angles (roll, pitch, yaw)."""
     w = quaternions[:, 0]
     x = quaternions[:, 1]
     y = quaternions[:, 2]
@@ -93,8 +75,9 @@ def quat_to_euler(quaternions):
     yaw = np.arctan2(siny_cosp, cosy_cosp)
     return np.stack([roll, pitch, yaw], axis=1)
 
-
-# --- Geometry Loading Functions ---
+# ----------------------
+# Geometry Loading Functions
+# ----------------------
 oct_dir = Path("octahedron")
 file_path_quaternion = oct_dir / "rb_orientation_vec.npy"
 file_path_xyz_coordinate = oct_dir / "rb_center.npy"
@@ -102,8 +85,8 @@ file_path_shape = oct_dir / "vertex_shape_points.npy"
 file_path_species = oct_dir / "vertex_shape_point_species.npy"
 file_paths = [file_path_quaternion, file_path_xyz_coordinate, file_path_shape]
 
-
 def load_rb_orientation_vec():
+    """Load rigid body orientation, center, shape, and species arrays."""
     rb_orientation_vec = jnp.load(file_path_quaternion).astype(jnp.float64)
     rb_center_vec = jnp.load(file_path_xyz_coordinate).astype(jnp.float64)
     rb_shape_vec = jnp.load(file_path_shape).astype(jnp.float64)
@@ -112,35 +95,26 @@ def load_rb_orientation_vec():
     full_shell = jnp.hstack([rb_center_vec, euler_orientations])
     return full_shell, rb_shape_vec, rb_species_vec
 
-
 def get_icos_shape_and_species(size):
+    """Return shape and species arrays for icosahedral geometry (legacy, not used)."""
     base_shape = load_rb_orientation_vec()[1]
     base_species = jnp.array([0, 1, 2, 1, 2])
     return jnp.array([base_shape for _ in range(size)]), jnp.array(
         [base_species for _ in range(size)]
     )
 
-
-def load_rb_orientation_vec():
-    rb_orientation_vec = jnp.load(file_path_quaternion).astype(jnp.float64)
-    rb_center_vec = jnp.load(file_path_xyz_coordinate).astype(jnp.float64)
-    rb_shape_vec = jnp.load(file_path_shape).astype(jnp.float64)
-    rb_species_vec = jnp.load(file_path_species).astype(jnp.int32)
-    euler_orientations = quat_to_euler(np.array(rb_orientation_vec))
-    full_shell = jnp.hstack([rb_center_vec, euler_orientations])
-    return full_shell, rb_shape_vec, rb_species_vec
-
-
-def get_octa_shape_and_species(size):
+def get_octa_shape_and_species(size, base_species):
+    """Return shape and species arrays for octahedral geometry, with explicit base_species."""
     _, base_shape, _ = load_rb_orientation_vec()
-    base_species = jnp.array([0, 1, 2, 1, 2])
     return jnp.array([base_shape for _ in range(size)]), jnp.array(
         [base_species for _ in range(size)]
     )
 
-
-# --- Connectivity Utilities ---
+# ----------------------
+# Connectivity Utilities
+# ----------------------
 def are_blocks_connected_rb(vertex_coords, vertex_radius=2.0, tolerance=0.2):
+    """Return adjacency matrix for blocks within a distance threshold."""
     positions = vertex_coords[:, :3]
     distances = distance_matrix(positions, positions)
     edge_length = (2.0 + tolerance) * vertex_radius
@@ -148,8 +122,8 @@ def are_blocks_connected_rb(vertex_coords, vertex_radius=2.0, tolerance=0.2):
     np.fill_diagonal(adjacency_matrix, 0)
     return adjacency_matrix
 
-
 def is_configuration_connected_rb(indices, adj_matrix):
+    """Check if a subset of indices forms a connected component."""
     indices = list(map(int, indices))
     visited = set()
     to_visit = {indices[0]}
@@ -160,8 +134,8 @@ def is_configuration_connected_rb(indices, adj_matrix):
         to_visit.update(neighbors & set(indices) - visited)
     return visited == set(indices)
 
-
 def generate_connected_subsets_rb(vertex_coords, adj_matrix):
+    """Generate all connected subsets of the vertex coordinates."""
     num_vertices = len(vertex_coords)
     configs = [np.array(vertex_coords)]
     current_indices = list(range(num_vertices))
@@ -192,16 +166,17 @@ def generate_connected_subsets_rb(vertex_coords, adj_matrix):
     all_config = one_mer + two_mer + connected_subsets
     return all_config
 
-
 vertex_species = 0
 n_species = 3
 vertex_radius = 2.1
 small_value = 1e-12
 rep_rmax_table = jnp.full((n_species, n_species), 2 * vertex_radius)
 
-
-# --- Potential Functions ---
+# ----------------------
+# Potential Functions
+# ----------------------
 def make_tables(opt_params):
+    """Construct parameter tables for Morse and soft-sphere potentials."""
     morse_eps = jnp.zeros((n_species, n_species))
     morse_alpha = jnp.zeros((n_species, n_species))
     soft_eps = jnp.zeros((n_species, n_species))
@@ -214,8 +189,8 @@ def make_tables(opt_params):
     soft_sigma = soft_sigma.at[0, 0].set(opt_params[-2])
     return morse_eps, morse_alpha, soft_eps, soft_sigma
 
-
 def pairwise_morse(ipos, jpos, i_species, j_species, opt_params):
+    """Compute Morse potential between two particles."""
     morse_eps, morse_alpha, _, _ = make_tables(opt_params)
     eps = morse_eps[i_species, j_species]
     alpha = morse_alpha[i_species, j_species]
@@ -227,28 +202,27 @@ def pairwise_morse(ipos, jpos, i_species, j_species, opt_params):
         dr, epsilon=eps, alpha=alpha, r_onset=r_onset, r_cutoff=r_cutoff, sigma=sigma
     )
 
-
 morse_func = vmap(
     vmap(pairwise_morse, in_axes=(None, 0, None, 0, None)),
     in_axes=(0, None, 0, None, None),
 )
 
-
 def pairwise_repulsion(ipos, jpos, i_species, j_species, opt_params):
+    """Compute soft-sphere repulsion between two particles."""
     _, _, soft_eps, soft_sigma = make_tables(opt_params)
     eps = soft_eps[i_species, j_species]
     sigma = soft_sigma[i_species, j_species]
     dr = space.distance(ipos - jpos)
     return soft_sphere(dr, sigma=sigma, epsilon=eps)
 
-
 inner_rep = vmap(pairwise_repulsion, in_axes=(None, 0, None, 0, None))
 rep_func = vmap(inner_rep, in_axes=(0, None, 0, None, None))
 
-# --- Energy Function Generator ---
-
-
+# ----------------------
+# Energy Function Generator
+# ----------------------
 def get_nmer_energy_fn(n):
+    """Return energy function for n-mer cluster."""
     pos_slices = [(i * 5, (i + 1) * 5) for i in range(n)]
     species_slices = [(i * 5, (i + 1) * 5) for i in range(n)]
     pairs = jnp.array(list(itertools.combinations(np.arange(n), 2)))
@@ -276,22 +250,22 @@ def get_nmer_energy_fn(n):
 
     return nmer_energy_fn
 
-
 def hess(energy_fn, q, pos, species, opt_params):
+    """Compute Hessian matrix of the energy function."""
     H = hessian(energy_fn)(q, pos, species, opt_params)
     evals, evecs = jnp.linalg.eigh(H)
     return evals, evecs
 
-
 def compute_zvib(energy_fn, q, pos, species, opt_params):
+    """Compute vibrational partition function component."""
     evals, _ = hess(energy_fn, q, pos, species, opt_params)
     zvib = jnp.prod(
         jnp.sqrt(2.0 * jnp.pi / ((opt_params[4]) * (jnp.abs(evals[6:]) + 1e-12)))
     )
     return zvib
 
-
 def compute_zrot_mod_sigma(energy_fn, q, pos, species, opt_params, key, nrandom=10000):
+    """Compute modified rotational partition function component."""
     Nbb = len(pos)
     evals, evecs = hess(energy_fn, q, pos, species, opt_params)
 
@@ -315,14 +289,14 @@ def compute_zrot_mod_sigma(energy_fn, q, pos, species, opt_params, key, nrandom=
     Jtilde = 8.0 * (jnp.pi**2) * J
     return Jtilde, Js, key
 
-
 def compute_zc(boltzmann_weight, z_rot_mod_sigma, z_vib, sigma, V=V):
+    """Compute translational, rotational, and vibrational partition function components."""
     z_trans = V
     z_rot = z_rot_mod_sigma / sigma
     return boltzmann_weight * z_trans * z_rot * z_vib
 
-
 def load_sigmas(file_path):
+    """Load sigma values from a file."""
     sigmas = {}
     with open(file_path, "r") as file:
         next(file)
@@ -333,8 +307,8 @@ def load_sigmas(file_path):
             sigmas[size] = float(sigma_str)
     return sigmas
 
-
 def adjust_sigmas(sigmas):
+    """Adjust sigma values based on shell size."""
     adjusted_sigmas = {}
     for size, sigma in sigmas.items():
         if size > 1:
@@ -343,23 +317,30 @@ def adjust_sigmas(sigmas):
             adjusted_sigmas[size] = 5.0
     return adjusted_sigmas
 
-
 sigmas_ext = load_sigmas("symmetry_numbers_oct.txt")
 sigmas = adjust_sigmas(sigmas_ext)
 
-# --- Prepare Rigid-Body and Shape Data ---
+# ----------------------
+# Prepare Rigid-Body and Shape Data
+# ----------------------
 full_shell = load_rb_orientation_vec()[0]
 adj_ma = are_blocks_connected_rb(full_shell, vertex_radius=2.1, tolerance=0.2)
 rbs = generate_connected_subsets_rb(full_shell, adj_ma)
 rbs = [rb.flatten() for rb in rbs]
-shapes_species = [get_icos_shape_and_species(size) for size in range(1, 7)]
+# Explicit base_species for octahedral geometry
+base_species = jnp.array([0, 1, 2, 1, 2])
+shapes_species = [get_octa_shape_and_species(size, base_species) for size in range(1, 7)]
 shapes, species = zip(*shapes_species)
 
-# --- Precompute Energy Functions ---
+# ----------------------
+# Precompute Energy Functions
+# ----------------------
 energy_fns = {size: jit(get_nmer_energy_fn(size)) for size in range(2, 6 + 1)}
 mon_energy_fn = lambda q, pos, species, opt_params: 0.0
 
-# --- Compute Rotational Contributions ---
+# ----------------------
+# Compute Rotational Contributions
+# ----------------------
 zrot_mod_sigma_1, _, main_key = compute_zrot_mod_sigma(
     mon_energy_fn, rbs[0], shapes[0], species[0], init_params, main_key
 )
@@ -382,8 +363,8 @@ for size in range(2, 6 + 1):
     )
     zrot_mod_sigma_values.append(zrot_mod_sigma)
 
-
 def get_log_z_all(opt_params):
+    """Compute log of the partition function for all structures."""
     def compute_log_z(size):
         energy_fn = energy_fns[size]
         shape = shapes[size - 1]
@@ -411,14 +392,14 @@ def get_log_z_all(opt_params):
 
     return log_z_all
 
-
 log_z_list = get_log_z_all(init_params)
 
-# --- Outer Optimization Setup ---
+# ----------------------
+# Outer Optimization Setup
+# ----------------------
 nper_structure = jnp.arange(1, 7)
 init_conc_val = args.init_conc
 init_conc = jnp.array([init_conc_val])
-
 
 def loss_fn(log_concs_struc, log_z_list):
 
@@ -452,10 +433,8 @@ def loss_fn(log_concs_struc, log_z_list):
 
     return tot_loss, combined, loss_var
 
-
 def optimality_fn(log_concs_struc, log_z_list):
     return grad(lambda x, z: loss_fn(x, z)[0])(log_concs_struc, log_z_list)
-
 
 def inner_solver(init_guess, log_z_list):
     lbfgs = LBFGS(
@@ -467,31 +446,26 @@ def inner_solver(init_guess, log_z_list):
     sol = lbfgs.run(init_guess, log_z_list)
     return sol.params
 
-
 def safe_exp(x, lower_bound=-709.0, upper_bound=709.0):
 
     clipped_x = jnp.clip(x, a_min=lower_bound, a_max=upper_bound)
 
     return jnp.exp(clipped_x)
 
-
 def safe_log(x, eps=1e-10):
     return jnp.log(jnp.clip(x, a_min=eps, a_max=None))
 
-
-def ofer(opt_params):
+def yield_solver(opt_params):
     log_z_list = get_log_z_all(opt_params)
     tot_conc = init_conc_val
     struc_concs_guess = jnp.full(6, safe_log(init_conc_val / 6))
-    # struc_concs_guess = struc_concs_guess.at[-1].set(jnp.log(0.2))
     fin_log_concs = inner_solver(struc_concs_guess, log_z_list)
     total_log = logsumexp(fin_log_concs)
     log_yield = fin_log_concs[-1] - total_log
     return log_yield
 
-
-def ofer_grad_fn(opt_params, desired_yield_val):
-    log_yield = ofer(opt_params)
+def yield_solver_grad_fn(opt_params, desired_yield_val):
+    log_yield = yield_solver(opt_params)
     target = jnp.log(desired_yield_val)
     energy_penalty = sum(
         [
@@ -507,7 +481,6 @@ def ofer_grad_fn(opt_params, desired_yield_val):
         + 0.05 * energy_penalty
     )
 
-
 num_params = len(init_params)
 mask = jnp.zeros(num_params)
 
@@ -515,17 +488,14 @@ mask = mask.at[0].set(1.0)
 mask = mask.at[-2].set(1.0)
 # mask = mask.at[0].set(1.0)
 
-
 def masked_grads(grads):
     return grads * mask
-
 
 def enforce_param_bounds(params):
     # Ensure morse_eps >= 0.5
     return params.at[0].set(jnp.maximum(params[0], 0.5))
 
-
-our_grad_fn = jit(value_and_grad(lambda p, y: (y - jnp.exp(ofer(p))) ** 2))
+our_grad_fn = jit(value_and_grad(lambda p, y: (y - jnp.exp(yield_solver(p))) ** 2))
 params = init_params
 outer_optimizer = optax.adam(5e-2)
 opt_state = outer_optimizer.init(params)
@@ -533,16 +503,13 @@ opt_state = outer_optimizer.init(params)
 n_outer_iters = 200
 outer_losses = []
 
-
 param_names = [f"morse_eps"]
 param_names += [f"morse_alpha"]
 param_names += [f"rep_A"]
 param_names += [f"rep_alpha"]
 param_names += [f"kbT"]
 
-
 desired_yield_val = args.desired_yield
-
 
 @jit
 def outer_step(params, opt_state, desired_yield):
@@ -553,12 +520,11 @@ def outer_step(params, opt_state, desired_yield):
     new_params = enforce_param_bounds(new_params)
     return new_params, opt_state, loss
 
-
-os.makedirs("Paper/optimized", exist_ok=True)
+os.makedirs("optimized_results", exist_ok=True)
 kt_val = args.kt
 params = init_params
 opt_state = outer_optimizer.init(params)
-with open(f"Paper/optimized/{kt_val}.txt", "w") as f:
+with open(f"optimized_results/{kt_val}.txt", "w") as f:
     for i in range(n_outer_iters):
         params, opt_state, loss = outer_step(params, opt_state, desired_yield_val)
         print(f"iter {i:3d}   loss={loss:.6f}")
@@ -568,15 +534,14 @@ with open(f"Paper/optimized/{kt_val}.txt", "w") as f:
         }.items():
             print(f"{name}: {value}")
         print(params)
-        fin_yield = ofer(params)
+        fin_yield = yield_solver(params)
         fin_yield = jnp.exp(fin_yield)
         print(f"Desired Yield: {desired_yield_val}, Yield: {fin_yield}")
         final_params = params
-        fin_yield = ofer(params)
+        fin_yield = yield_solver(params)
         final_target_yields = jnp.exp(fin_yield)
 
     f.write(
         f"{desired_yield_val},{final_target_yields},{params[0]},{params[-2]},{params[-1]}\n"
     )
-    # f.write(f"{des_yield}, {final_target_yields}, {params[0]}, {params[-1]}\n")
     f.flush()
