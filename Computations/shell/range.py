@@ -367,11 +367,11 @@ def adjust_sigmas(sigmas):
         if size > 1:
             adjusted_sigmas[size] = sigma  # * (5 ** size)
         else:
-            adjusted_sigmas[size] = 5.0
+            adjusted_sigmas[size] = 2.0
     return adjusted_sigmas
 
 
-sigmas_ext = load_sigmas("symmetry_numbers_oct.txt")
+sigmas_ext = load_sigmas("symmetry_numbers_oct_with_species.txt")
 sigmas = adjust_sigmas(sigmas_ext)
 
 # --- Prepare Rigid-Body and Shape Data ---
